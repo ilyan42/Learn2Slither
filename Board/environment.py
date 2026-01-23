@@ -1,5 +1,5 @@
 import random
-
+import math
 
 
 WIDTH = 10
@@ -36,7 +36,27 @@ class Environment:
         self.green_apples = [self.random_empty_cell() for _ in range(2)]
         self.red_apple = self.random_empty_cell()
 
+        self.steps_without_food = 0  # Compteur pour éviter les boucles infinies
+        self.max_steps_without_food = 100  # Limite de steps sans manger
+
         self.update_grid()
+
+    def distance_to_nearest_green_apple(self, pos):
+        """Calcule la distance Manhattan vers la pomme verte la plus proche."""
+        if not self.green_apples:
+            return float('inf')
+        
+        min_dist = float('inf')
+        for apple in self.green_apples:
+            dist = abs(pos[0] - apple[0]) + abs(pos[1] - apple[1])
+            min_dist = min(min_dist, dist)
+        return min_dist
+
+    def distance_to_red_apple(self, pos):
+        """Calcule la distance Manhattan vers la pomme rouge."""
+        if not self.red_apple:
+            return float('inf')
+        return abs(pos[0] - self.red_apple[0]) + abs(pos[1] - self.red_apple[1])
 
     def display_grid(self):
         self.update_grid()
@@ -55,53 +75,102 @@ class Environment:
         return random.choice(empty)
 
     def GameOver(self):
-        print("GAME OVER")
-        print("Final length:", len(self.snake))
         self.game_over = True
         
     
 
     def move(self, direction):
+        reward = 0
+        done = False
 
         head_x, head_y = self.snake[0]
         dir_x, dir_y = direction
         new_head = (head_x + dir_x, head_y + dir_y)
 
-        # wall collision
-        if not (0 <= new_head[0] < WIDTH and 0 <= new_head[1] < HEIGHT):
-            print("Collision with wall!")
-            self.GameOver()
-            return False
+        # Calcul de la distance avant le mouvement
+        old_dist_green = self.distance_to_nearest_green_apple(self.snake[0])
+        old_dist_red = self.distance_to_red_apple(self.snake[0])
 
-        if (new_head in self.green_apples):
+        # mur = game over
+        if not (0 <= new_head[0] < WIDTH and 0 <= new_head[1] < HEIGHT):
+            reward = -100
+            self.GameOver()
+            return reward, True
+
+        # collision avec soi-même = game over
+        if new_head in self.snake:
+            reward = -100
+            self.GameOver()
+            return reward, True
+
+        # Calcul de la nouvelle distance après mouvement
+        new_dist_green = self.distance_to_nearest_green_apple(new_head)
+        new_dist_red = self.distance_to_red_apple(new_head)
+
+        # pomme verte
+        if new_head in self.green_apples:
             self.green_apples.remove(new_head)
             self.green_apples.append(self.random_empty_cell())
-            self.snake.insert(0, new_head)
-            return True
+            self.snake.insert(0, new_head)  # grandit
+            reward = 20  # Grosse récompense pour manger une pomme verte
+            self.steps_without_food = 0  # Reset le compteur
+            self.update_grid()
+            return reward, False
 
+        # pomme rouge (longueur -1)
         if new_head == self.red_apple:
             self.red_apple = self.random_empty_cell()
             self.snake.insert(0, new_head)
+            # pour réduire la longueur de 1 au total :
             self.snake.pop()
             if len(self.snake) > 0:
                 self.snake.pop()
-                print("Red apple eaten! Snake length:", len(self.snake))
-                if len(self.snake) == 0:
-                    print("Snake has no more segments left!")
-                    self.GameOver()
 
+            if len(self.snake) == 0:
+                reward = -100
+                self.GameOver()
+                return reward, True
+
+            reward = -10  # Malus pour pomme rouge
+            self.steps_without_food = 0
             self.update_grid()
-            return True
+            return reward, False
 
-        if new_head in self.snake:
-            print("Collision with itself!")
-            self.GameOver()
-            return False
-
+        # mouvement normal
         self.snake.insert(0, new_head)
         self.snake.pop()
+        self.steps_without_food += 1
+
+        # === REWARD SHAPING ===
+        
+        # Récompense/malus basé sur la distance aux pommes vertes
+        if new_dist_green < old_dist_green:
+            reward += 1.0  # Se rapproche d'une pomme verte
+        elif new_dist_green > old_dist_green:
+            reward -= 1.5  # S'éloigne d'une pomme verte (malus plus fort)
+
+        # Malus léger si on se rapproche de la pomme rouge
+        if new_dist_red < old_dist_red:
+            reward -= 0.3  # Se rapproche de la pomme rouge
+        elif new_dist_red > old_dist_red:
+            reward += 0.2  # S'éloigne de la pomme rouge
+
+        # Petit malus par step pour encourager l'efficacité
+        reward -= 0.05
+
+        # Malus si trop de steps sans manger (évite les boucles)
+        if self.steps_without_food > self.max_steps_without_food:
+            reward = -50
+            self.GameOver()
+            return reward, True
+
+        # Bonus de survie progressif basé sur la longueur
+        if len(self.snake) >= 5:
+            reward += 0.1 * (len(self.snake) - 3)
+
         self.update_grid()
-        return True
+        return reward, False
+
 
     def update_grid(self):
         self.grid = [[0 for _ in range(WIDTH)] for _ in range(HEIGHT)]
@@ -128,30 +197,44 @@ class Environment:
         if (x, y) == self.red_apple:
             return "R"
         return "0"
+    
+    def _bucket_distance(self, d):
+        if d <= 2:
+            return 1
+        if d <= 5:
+            return 2
+        return 3
 
-    def look_direction(self, dx, dy):
-        vision = []
 
-        x, y = self.snake[0]  # tête
-        vision.append("H")
+    def look_bucket(self, dx, dy):
+        x, y = self.snake[0]
+        steps = 0
 
         while True:
             x += dx
             y += dy
+            steps += 1
 
-            symbol = self._cell_symbol(x, y)
-            vision.append(symbol)
+            # mur
+            if not (0 <= x < WIDTH and 0 <= y < HEIGHT):
+                # mur collé
+                return ("W", 1) if steps == 1 else ("0", 0)
 
-            if symbol == "W":
-                break
+            pos = (x, y)
 
-        return vision
+            if pos in self.green_apples:
+                return ("G", self._bucket_distance(steps))
+            if pos == self.red_apple:
+                return ("R", self._bucket_distance(steps))
+            if pos in self.snake:
+                return ("S", self._bucket_distance(steps))
+
 
     def get_state(self):
-        up = self.look_direction(0, -1)
-        right = self.look_direction(1, 0)
-        down = self.look_direction(0, 1)
-        left = self.look_direction(-1, 0)
+        up = self.look_bucket(0, -1)
+        right = self.look_bucket(1, 0)
+        down = self.look_bucket(0, 1)
+        left = self.look_bucket(-1, 0)
 
-        return (tuple(up), tuple(right), tuple(down), tuple(left))
+        return (up, right, down, left)
 
