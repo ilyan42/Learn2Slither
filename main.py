@@ -1,4 +1,5 @@
 from Board.environment import Environment
+from render.display import PygameRenderer
 import random
 import os
 import sys
@@ -46,14 +47,27 @@ def init_state(q, state):
     if state not in q:
         q[state] = [0, 0, 0, 0]
 
+def safe_actions_from_state(state):
+    safe = []
+    for a in range(4):
+        sym, dist = state[a]
+        if not (dist == 1 and sym in ("W", "S")):
+            safe.append(a)
+    return safe if safe else [0, 1, 2, 3]
+
 
 def choose_action(Q, state, epsilon):
     if random.random() < epsilon:
         return random.randint(0, 3)
+
     values = Q[state]
     max_v = max(values)
-    best_actions = [i for i, v in enumerate(values) if v == max_v]
-    return random.choice(best_actions)
+    best = [i for i, v in enumerate(values) if v == max_v]
+
+    safe = safe_actions_from_state(state)
+    best_safe = [a for a in best if a in safe]
+    return random.choice(best_safe) if best_safe else random.choice(best)
+
 
 
 def update_q(Q, state, action, reward, next_state, alpha, gamma):
@@ -254,51 +268,95 @@ def evaluate_mode(num_games=100, model_path=None):
     
     return results
 
-
-def visual_mode(speed=0.2, model_path=None):
+def visual_mode(speed=0.2, model_path=None, use_window=False, fps=10, step_by_step=False):
     global Q
-    
+
     if model_path:
         loaded_Q = load_model(model_path)
         if loaded_Q:
             Q = loaded_Q
-    
+
     if not Q:
         print("\nLa Q-table est vide! Chargez un modele ou entrainez d'abord.")
         return
-    
+
     print(f"\n{'='*50}")
     print("  MODE VISUALISATION")
     print(f"{'='*50}")
     print(f"  Etats dans Q: {len(Q)}")
-    print("  Ctrl+C pour arreter\n")
-    time.sleep(2)
-    
+    if use_window:
+        print("  Fenetre: ON")
+        print(f"  FPS: {fps}")
+        print(f"  Step-by-step: {'ON' if step_by_step else 'OFF'}")
+    else:
+        print("  Fenetre: OFF (ASCII terminal)")
+        print("  Ctrl+C pour arreter")
+    print()
+
+    renderer = None
+    if use_window:
+        renderer = PygameRenderer(width=10, height=10, cell_size=50)
+
     env = Environment()
     epsilon = 0
-    
+
+    steps = 0
+    episode = 1
+
     try:
         while not env.game_over:
-            display_grid_visual(env)
+            # gestion fermeture fenetre
+            if renderer and not renderer.handle_quit():
+                renderer.close()
+                return
+
+            # affichage (avant action)
+            if renderer:
+                renderer.draw(env.grid, length=len(env.snake), steps=steps, episode=episode)
+            else:
+                display_grid_visual(env)
+
             state = env.get_state()
             init_state(Q, state)
+
             action = choose_action(Q, state, epsilon)
             direction = ACTIONS[action]
-            print(f"Action: {ACTION_NAMES[action]}")
+
+            print(f"Etat: {state} | Action: {ACTION_NAMES[action]}")
+
             reward, done = env.move(direction)
-            time.sleep(speed)
+            steps += 1
+
+            if renderer:
+                renderer.draw(env.grid, length=len(env.snake), steps=steps, episode=episode)
+                if step_by_step:
+                    ok = renderer.wait_step()
+                    if not ok:
+                        renderer.close()
+                        return
+                else:
+                    renderer.tick(fps)
+            else:
+                time.sleep(speed)
+
             if done:
                 break
-        
-        display_grid_visual(env)
-        print("\n" + "="*50)
-        print("  GAME OVER!")
-        print(f"  Longueur finale: {len(env.snake)}")
-        print("="*50 + "\n")
-        
-    except KeyboardInterrupt:
-        print("\n\nVisualisation interrompue.")
 
+        # fin de partie
+        if renderer:
+            renderer.draw(env.grid, length=len(env.snake), steps=steps, episode=episode)
+            renderer.close()
+        else:
+            display_grid_visual(env)
+            print("\n" + "="*50)
+            print("  GAME OVER!")
+            print(f"  Longueur finale: {len(env.snake)}")
+            print("="*50 + "\n")
+
+    except KeyboardInterrupt:
+        if renderer:
+            renderer.close()
+        print("\n\nVisualisation interrompue.")
 
 def interactive_mode():
     print(f"\n{'='*50}")
@@ -426,6 +484,10 @@ def main():
     parser.add_argument('--episodes', type=int, default=2000, help="Nb episodes (defaut: 2000)")
     parser.add_argument('--games', type=int, default=100, help="Nb parties evaluation")
     parser.add_argument('--speed', type=float, default=0.15, help="Vitesse visu (defaut: 0.15)")
+    parser.add_argument('--window', action='store_true', help="Affiche une fenetre pygame (visuel)")
+    parser.add_argument('--fps', type=int, default=10, help="FPS fenetre pygame (defaut: 10)")
+    parser.add_argument('--step', action='store_true', help="Mode step-by-step (1 touche = 1 move) en fenetre")
+
     parser.add_argument('--checkpoints', type=str, default="", help="Ex: 1,10,100")
     
     parser.add_argument('--save', type=str, default="", help="Sauvegarder modele")
@@ -461,12 +523,19 @@ def main():
             save_checkpoints=checkpoints,
             model_path=args.save if args.save else None
         )
-    
+        
     if args.evaluate:
         evaluate_mode(num_games=args.games, model_path=args.load if args.load else None)
     
     if args.visual:
-        visual_mode(speed=args.speed, model_path=args.load if args.load else None)
+        visual_mode(
+            speed=args.speed,
+            model_path=args.load if args.load else None,
+            use_window=args.window,
+            fps=args.fps,
+            step_by_step=args.step
+        )
+
     
     if args.play:
         interactive_mode()
