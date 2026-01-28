@@ -13,29 +13,26 @@ class PygameRenderer:
         self.clock = pygame.time.Clock()
 
         w = width * (cell_size + margin) + margin
-        h = height * (cell_size + margin) + margin + 40  # bandeau texte
+        h = height * (cell_size + margin) + margin + 40
         self.screen = pygame.display.set_mode((w, h))
         pygame.display.set_caption("Learn2Slither")
 
     def _color_for_cell(self, v):
-        # 0 empty, 1 snake, 2 green, 3 red
         if v == 1:
-            return (60, 130, 255)   # bleu
+            return (60, 130, 255)
         if v == 2:
-            return (60, 200, 60)    # vert
+            return (60, 200, 60)
         if v == 3:
-            return (220, 60, 60)    # rouge
-        return (30, 30, 30)         # fond
+            return (220, 60, 60)
+        return (30, 30, 30)
 
     def handle_quit(self):
-        # Retourne False si l’utilisateur ferme la fenêtre
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return False
         return True
 
     def wait_step(self):
-        # Step-by-step: attend une touche (ou quit)
         while True:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -46,7 +43,6 @@ class PygameRenderer:
     def draw(self, grid, length=0, steps=0, episode=0):
         self.screen.fill((15, 15, 15))
 
-        # Dessin de la grille
         for y in range(self.height):
             for x in range(self.width):
                 v = grid[y][x]
@@ -60,7 +56,6 @@ class PygameRenderer:
                     border_radius=4
                 )
 
-        # Bandeau texte
         text = f"Episode: {episode} | Steps: {steps} | Length: {length}"
         surf = self.font.render(text, True, (220, 220, 220))
         self.screen.blit(surf, (10, 10))
