@@ -14,6 +14,9 @@ from utils.io import save_model, load_model
 ACTIONS = [Environment.UP, Environment.RIGHT, Environment.DOWN, Environment.LEFT]
 ACTION_NAMES = ["UP", "RIGHT", "DOWN", "LEFT"]
 
+TERMINAL_STATE = (("T", 0), ("T", 0), ("T", 0), ("T", 0))
+
+
 
 def train_mode(
     episodes: int,
@@ -53,10 +56,17 @@ def train_mode(
 
             reward, done = env.move(direction, state=state, action=action)
 
-            next_state = env.get_state()
-            init_state(Q, next_state)
+            if done:
+                next_state = TERMINAL_STATE
+            else:
+                next_state = env.get_state()
 
-            update_q(Q, state, action, reward, next_state, alpha, gamma)
+            init_state(Q, next_state)
+            update_q(Q, state, action, reward, next_state, alpha, gamma, done=done)
+
+            if done:
+                break
+
 
             steps += 1
             if done:
@@ -198,7 +208,7 @@ def visual_mode(model_path: str, use_window: bool, fps: int,
             direction = ACTIONS[action]
 
             # Affichage vision + action dans le terminal (conforme au sujet)
-            print_vision(env, action)
+            # print_vision(env, action)
 
             # Mode step-by-step
             if step_by_step:

@@ -1,5 +1,8 @@
 """Learn2Slither - Snake game with Q-Learning agent."""
 
+import os
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
+
 import argparse
 import random
 

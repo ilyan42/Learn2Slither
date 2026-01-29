@@ -48,8 +48,7 @@ def choose_action(q: QTable, state: Tuple, epsilon: float, use_safety: bool) -> 
     return random.choice(best)
 
 
-def update_q(q: QTable, state: Tuple, action: int, reward: float,
-             next_state: Tuple, alpha: float, gamma: float) -> None:
-    """Update Q-value using Bellman equation."""
-    best_next = max(q[next_state])
+def update_q(q, state, action, reward, next_state, alpha, gamma, done=False):
+    best_next = 0.0 if done else max(q[next_state])
     q[state][action] += alpha * (reward + gamma * best_next - q[state][action])
+
